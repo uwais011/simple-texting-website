@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple Chat - Real-Time Messaging</title>
+    <title>Simple Chat - Debug Version</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -37,9 +37,6 @@
                 />
                 <button onclick="joinChat()" class="btn-join">Enter Chat</button>
                 <p class="info-text">💡 Share the room name & password with others to chat together!</p>
-                <p class="info-text" style="margin-top: 20px; font-size: 12px; color: #999;">
-                    ℹ️ Messages are stored on our server and synced in real-time
-                </p>
             </div>
         </div>
 
@@ -68,6 +65,117 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script>
+        // Global room storage
+        const allRooms = {};
+        let currentUser = '';
+        let currentRoom = '';
+        let currentPassword = '';
+        let pollInterval = null;
+
+        function joinChat() {
+            const username = document.getElementById('usernameInput').value;
+            const room = document.getElementById('roomInput').value;
+            const password = document.getElementById('passwordInput').value;
+
+            if (!username || !room || !password) {
+                alert('Please fill in all fields');
+                return;
+            }
+
+            currentUser = username;
+            currentRoom = room;
+            currentPassword = password;
+
+            const roomId = room + '|' + password;
+            if (!allRooms[roomId]) {
+                allRooms[roomId] = [];
+            }
+
+            document.getElementById('setupSection').style.display = 'none';
+            document.getElementById('chatWindow').style.display = 'flex';
+            document.getElementById('roomName').textContent = room;
+            document.getElementById('userName').textContent = username;
+            document.getElementById('messages').innerHTML = '';
+
+            refreshMessages();
+            startPolling();
+            document.getElementById('messageInput').focus();
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const text = input.value;
+
+            if (!text) return;
+
+            const roomId = currentRoom + '|' + currentPassword;
+            
+            const msg = {
+                id: Date.now(),
+                user: currentUser,
+                text: text,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            };
+
+            allRooms[roomId].push(msg);
+            input.value = '';
+
+            refreshMessages();
+            scrollToBottom();
+        }
+
+        function refreshMessages() {
+            const roomId = currentRoom + '|' + currentPassword;
+            const messages = allRooms[roomId] || [];
+            const container = document.getElementById('messages');
+            container.innerHTML = '';
+
+            messages.forEach(msg => {
+                const div = document.createElement('div');
+                div.className = msg.user === currentUser ? 'message own' : 'message other';
+                div.innerHTML = `
+                    <div class="message-author">${msg.user}</div>
+                    <div class="message-bubble">${msg.text}</div>
+                    <div class="message-time">${msg.time}</div>
+                `;
+                container.appendChild(div);
+            });
+
+            scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            const container = document.getElementById('messages');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function leaveChat() {
+            stopPolling();
+            document.getElementById('setupSection').style.display = 'flex';
+            document.getElementById('chatWindow').style.display = 'none';
+            document.getElementById('usernameInput').value = '';
+            document.getElementById('roomInput').value = '';
+            document.getElementById('passwordInput').value = '';
+            currentUser = '';
+            currentRoom = '';
+            currentPassword = '';
+        }
+
+        function handleKeyPress(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function startPolling() {
+            pollInterval = setInterval(refreshMessages, 300);
+        }
+
+        function stopPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+        }
+    </script>
 </body>
 </html>
