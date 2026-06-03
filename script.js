@@ -1,158 +1,150 @@
-// Using Supabase (free backend with real-time sync)
-// This is much simpler and more reliable than Firebase
-
+// In-memory message storage
+const rooms = {};
 let currentUser = '';
 let currentRoom = '';
 let currentPassword = '';
 let pollInterval = null;
-let displayedMessages = new Set();
-
-// In-memory storage for demo (will work immediately without backend setup)
-let roomMessages = {};
 
 window.addEventListener('load', () => {
-    console.log('Chat app initialized');
+    console.log('✅ Chat app loaded successfully');
 });
 
-function generateRoomId(roomName, password) {
-    // Create unique room ID
-    const combined = roomName + '||' + password;
-    let hash = 0;
-    for (let i = 0; i < combined.length; i++) {
-        hash = ((hash << 5) - hash) + combined.charCodeAt(i);
-    }
-    return 'room_' + Math.abs(hash).toString(36);
-}
-
 function joinChat() {
-    const usernameInput = document.getElementById('usernameInput').value.trim();
-    const roomInput = document.getElementById('roomInput').value.trim();
-    const passwordInput = document.getElementById('passwordInput').value.trim();
+    const username = document.getElementById('usernameInput').value.trim();
+    const room = document.getElementById('roomInput').value.trim();
+    const password = document.getElementById('passwordInput').value.trim();
 
-    if (!usernameInput) {
-        alert('❌ Please enter your name!');
+    console.log('Join attempt - Username:', username, 'Room:', room, 'Password:', password);
+
+    if (!username) {
+        alert('❌ Please enter your name');
         return;
     }
 
-    if (!roomInput) {
-        alert('❌ Please enter a room name!');
+    if (!room) {
+        alert('❌ Please enter a room name');
         return;
     }
 
-    if (!passwordInput) {
-        alert('❌ Please enter a room password!');
+    if (!password) {
+        alert('❌ Please enter a room password');
         return;
     }
 
-    currentUser = usernameInput;
-    currentRoom = roomInput;
-    currentPassword = passwordInput;
+    // Create room key
+    currentUser = username;
+    currentRoom = room;
+    currentPassword = password;
 
-    const roomId = generateRoomId(currentRoom, currentPassword);
-    
-    // Initialize room if it doesn't exist
-    if (!roomMessages[roomId]) {
-        roomMessages[roomId] = [];
+    // Initialize room if needed
+    const roomKey = getRoomKey(room, password);
+    if (!rooms[roomKey]) {
+        rooms[roomKey] = [];
+        console.log('✅ Created new room:', roomKey);
     }
 
-    // Show chat window
+    // Switch UI
     document.getElementById('setupSection').style.display = 'none';
     document.getElementById('chatWindow').style.display = 'flex';
-    document.getElementById('roomName').textContent = currentRoom;
-    document.getElementById('userName').textContent = currentUser;
+    document.getElementById('roomName').innerHTML = currentRoom;
+    document.getElementById('userName').innerHTML = currentUser;
 
-    // Clear display
-    displayedMessages.clear();
+    // Clear messages display
     document.getElementById('messages').innerHTML = '';
 
-    // Load and display existing messages
-    loadMessages();
-
-    // Focus on input
-    document.getElementById('messageInput').focus();
+    // Display any existing messages
+    displayAllMessages();
 
     // Start polling
     startPolling();
+
+    // Focus input
+    setTimeout(() => {
+        document.getElementById('messageInput').focus();
+    }, 100);
+
+    console.log('✅ Joined room:', roomKey);
 }
 
-function loadMessages() {
-    const roomId = generateRoomId(currentRoom, currentPassword);
-    const messages = roomMessages[roomId] || [];
-    const messagesDiv = document.getElementById('messages');
-    messagesDiv.innerHTML = '';
-    displayedMessages.clear();
-
-    messages.forEach(msg => {
-        displayMessage(msg);
-    });
-
-    scrollToBottom();
+function getRoomKey(room, password) {
+    return `${room}|${password}`;
 }
 
 function sendMessage() {
-    const messageInput = document.getElementById('messageInput');
-    const text = messageInput.value.trim();
+    const input = document.getElementById('messageInput');
+    const text = input.value.trim();
 
     if (!text) {
-        console.log('Empty message, ignoring');
+        console.log('⚠️ Empty message');
         return;
     }
 
-    console.log('Sending message:', text);
+    if (!currentRoom || !currentPassword) {
+        alert('❌ Not in a room');
+        return;
+    }
 
-    const roomId = generateRoomId(currentRoom, currentPassword);
-    const now = new Date();
-    const msgObj = {
-        id: Date.now().toString(),
+    const roomKey = getRoomKey(currentRoom, currentPassword);
+    
+    const message = {
+        id: Date.now(),
         user: currentUser,
         text: text,
-        timestamp: Date.now(),
-        time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        time: getTime()
     };
 
-    // Add to room messages
-    if (!roomMessages[roomId]) {
-        roomMessages[roomId] = [];
+    // Add to room
+    if (!rooms[roomKey]) {
+        rooms[roomKey] = [];
     }
-    roomMessages[roomId].push(msgObj);
+    rooms[roomKey].push(message);
 
-    console.log('Message added. Room now has', roomMessages[roomId].length, 'messages');
-
-    // Display message
-    displayMessage(msgObj);
-    displayedMessages.add(msgObj.id);
+    console.log('✅ Message sent:', text);
+    console.log('📊 Room now has', rooms[roomKey].length, 'messages');
 
     // Clear input
-    messageInput.value = '';
-    messageInput.focus();
+    input.value = '';
 
-    scrollToBottom();
+    // Display message immediately
+    addMessageToUI(message);
+
+    // Broadcast to other tabs
+    broadcastMessage(roomKey, message);
 }
 
-function displayMessage(msgObj) {
-    if (displayedMessages.has(msgObj.id)) {
-        return; // Already displayed
-    }
+function addMessageToUI(message) {
+    const container = document.getElementById('messages');
+    const div = document.createElement('div');
+    div.className = message.user === currentUser ? 'message own' : 'message other';
+    div.id = 'msg-' + message.id;
 
-    const messagesDiv = document.getElementById('messages');
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${msgObj.user === currentUser ? 'own' : 'other'}`;
-    messageDiv.id = 'msg-' + msgObj.id;
-
-    messageDiv.innerHTML = `
-        <div class="message-author">${escapeHtml(msgObj.user)}</div>
-        <div class="message-bubble">${escapeHtml(msgObj.text)}</div>
-        <div class="message-time">${msgObj.time}</div>
+    div.innerHTML = `
+        <div class="message-author">${escapeHtml(message.user)}</div>
+        <div class="message-bubble">${escapeHtml(message.text)}</div>
+        <div class="message-time">${message.time}</div>
     `;
 
-    messagesDiv.appendChild(messageDiv);
-    displayedMessages.add(msgObj.id);
+    container.appendChild(div);
+    scrollToBottom();
+
+    console.log('✅ Message added to UI:', message.text);
+}
+
+function displayAllMessages() {
+    const roomKey = getRoomKey(currentRoom, currentPassword);
+    const messages = rooms[roomKey] || [];
+    const container = document.getElementById('messages');
+    container.innerHTML = '';
+
+    messages.forEach(msg => {
+        addMessageToUI(msg);
+    });
 }
 
 function scrollToBottom() {
-    const messagesDiv = document.getElementById('messages');
+    const container = document.getElementById('messages');
     setTimeout(() => {
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        container.scrollTop = container.scrollHeight;
     }, 0);
 }
 
@@ -167,73 +159,72 @@ function leaveChat() {
     currentUser = '';
     currentRoom = '';
     currentPassword = '';
-    displayedMessages.clear();
+    console.log('✅ Left chat room');
 }
 
-function handleKeyPress(event) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
+function handleKeyPress(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
         sendMessage();
     }
 }
 
 function startPolling() {
-    console.log('Starting polling for new messages');
+    console.log('🔄 Started polling');
     pollInterval = setInterval(() => {
-        checkForNewMessages();
-    }, 500);
+        if (currentRoom && currentPassword) {
+            displayAllMessages();
+        }
+    }, 300);
 }
 
 function stopPolling() {
     if (pollInterval) {
         clearInterval(pollInterval);
-        pollInterval = null;
-        console.log('Stopped polling');
+        console.log('🛑 Stopped polling');
     }
 }
 
-function checkForNewMessages() {
-    const roomId = generateRoomId(currentRoom, currentPassword);
-    const messages = roomMessages[roomId] || [];
-
-    messages.forEach(msg => {
-        if (!displayedMessages.has(msg.id)) {
-            console.log('New message found:', msg.text);
-            displayMessage(msg);
-            scrollToBottom();
-        }
-    });
+function broadcastMessage(roomKey, message) {
+    // Broadcast to other tabs via storage event
+    try {
+        localStorage.setItem(`chat_${roomKey}`, JSON.stringify({
+            ...message,
+            timestamp: Date.now()
+        }));
+    } catch (e) {
+        console.error('Error broadcasting:', e);
+    }
 }
 
-function escapeHtml(text) {
-    const map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;'
-    };
-    return text.replace(/[&<>"']/g, m => map[m]);
-}
-
-// Share data between browser windows/tabs
-window.addEventListener('storage', (event) => {
-    if (event.key && event.key.startsWith('chat_message_')) {
+// Listen for messages from other tabs
+window.addEventListener('storage', (e) => {
+    if (e.key && e.key.startsWith('chat_')) {
         try {
-            const msg = JSON.parse(event.newValue);
-            const roomId = generateRoomId(currentRoom, currentPassword);
+            const msg = JSON.parse(e.newValue);
+            const roomKey = getRoomKey(currentRoom, currentPassword);
             
-            if (msg && msg.roomId === roomId && !displayedMessages.has(msg.id)) {
-                console.log('Received message from another tab:', msg.text);
-                if (!roomMessages[roomId]) {
-                    roomMessages[roomId] = [];
+            if (e.key === `chat_${roomKey}` && msg) {
+                // Check if message already exists
+                const roomMessages = rooms[roomKey] || [];
+                if (!roomMessages.find(m => m.id === msg.id)) {
+                    roomMessages.push(msg);
+                    console.log('📨 Received message from other tab:', msg.text);
                 }
-                roomMessages[roomId].push(msg);
-                displayMessage(msg);
-                scrollToBottom();
             }
-        } catch (e) {
-            console.error('Error processing shared message:', e);
+        } catch (err) {
+            console.error('Error processing message from storage:', err);
         }
     }
 });
+
+function getTime() {
+    const now = new Date();
+    return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
