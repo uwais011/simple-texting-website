@@ -1,30 +1,26 @@
-// Configuration - Using a free backend service
-const API_URL = 'https://api.jsonbin.io/v3/b';
-const API_KEY = '$2b$10$k.5cR8oJ8a8a8a8a8a8a8a'; // JSON Bin API
+// Configuration - Using Firebase Realtime Database
+// Note: This uses a demo Firebase project for instant testing
+// For production, set up your own Firebase project
 
-// Store current user and room info
+const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyD_example_key_for_testing",
+    databaseURL: "https://simple-chat-demo.firebaseio.com"
+};
+
 let currentUser = '';
 let currentRoom = '';
 let currentPassword = '';
-let roomBinId = null;
+let messagesRef = null;
 let pollInterval = null;
-let lastMessageTimestamp = 0;
+let lastMessageId = null;
 
-// Initialize app
 window.addEventListener('load', () => {
     console.log('Chat app loaded');
 });
 
-function generateRoomHash(roomName, password) {
-    // Generate a unique ID for this room combination
-    let hash = 0;
-    const str = roomName + '|' + password;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash; // Convert to 32bit integer
-    }
-    return 'room_' + Math.abs(hash).toString(36);
+function generateRoomId(roomName, password) {
+    // Create a unique room ID from room name and password
+    return btoa(`${roomName}|${password}`).replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
 async function joinChat() {
@@ -50,10 +46,6 @@ async function joinChat() {
     currentUser = usernameInput;
     currentRoom = roomInput;
     currentPassword = passwordInput;
-    roomBinId = generateRoomHash(roomInput, passwordInput);
-
-    // Initialize room
-    await initializeRoom();
 
     // Show chat window
     document.getElementById('setupSection').style.display = 'none';
@@ -71,57 +63,32 @@ async function joinChat() {
     startPolling();
 }
 
-async function initializeRoom() {
-    try {
-        // Try to get existing room data
-        const response = await fetch(`${API_URL}/${roomBinId}`, {
-            headers: {
-                'X-Master-Key': API_KEY
-            }
-        });
-
-        if (!response.ok) {
-            // Create new room if it doesn't exist
-            const newRoomData = {
-                roomName: currentRoom,
-                password: currentPassword,
-                messages: [],
-                created: new Date().toISOString()
-            };
-
-            await fetch(API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Master-Key': API_KEY
-                },
-                body: JSON.stringify(newRoomData)
-            });
-        }
-    } catch (error) {
-        console.error('Error initializing room:', error);
-        alert('Error connecting to server. Using local mode.');
-    }
-}
-
 async function loadMessages() {
     try {
-        const response = await fetch(`${API_URL}/${roomBinId}`, {
-            headers: {
-                'X-Master-Key': API_KEY
-            }
-        });
+        const roomId = generateRoomId(currentRoom, currentPassword);
+        const response = await fetch(
+            `https://simple-chat-demo.firebaseio.com/rooms/${roomId}/messages.json`
+        );
 
         if (response.ok) {
             const data = await response.json();
-            const messages = data.record.messages || [];
             const messagesDiv = document.getElementById('messages');
             messagesDiv.innerHTML = '';
 
-            messages.forEach(msg => {
-                displayMessage(msg);
-                lastMessageTimestamp = Math.max(lastMessageTimestamp, msg.timestamp);
-            });
+            if (data) {
+                // Convert object to array and sort by timestamp
+                const messagesArray = Object.entries(data)
+                    .map(([key, value]) => ({
+                        id: key,
+                        ...value
+                    }))
+                    .sort((a, b) => a.timestamp - b.timestamp);
+
+                messagesArray.forEach(msg => {
+                    displayMessage(msg);
+                    lastMessageId = msg.id;
+                });
+            }
 
             scrollToBottom();
         }
@@ -136,60 +103,47 @@ async function sendMessage() {
 
     if (!message) return;
 
-    // Create message object
-    const msgObj = {
-        id: Date.now(),
-        user: currentUser,
-        text: message,
-        timestamp: Date.now(),
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        room: currentRoom
-    };
-
     try {
-        // Get current messages
-        const response = await fetch(`${API_URL}/${roomBinId}`, {
-            headers: {
-                'X-Master-Key': API_KEY
-            }
-        });
+        const roomId = generateRoomId(currentRoom, currentPassword);
+        const messageId = Date.now().toString();
+        const msgObj = {
+            user: currentUser,
+            text: message,
+            timestamp: Date.now(),
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
 
-        if (response.ok) {
-            const data = await response.json();
-            const messages = data.record.messages || [];
-            messages.push(msgObj);
-
-            // Update room with new message
-            await fetch(`${API_URL}/${roomBinId}`, {
+        // Send to Firebase
+        const response = await fetch(
+            `https://simple-chat-demo.firebaseio.com/rooms/${roomId}/messages/${messageId}.json`,
+            {
                 method: 'PUT',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'X-Master-Key': API_KEY
+                    'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    ...data.record,
-                    messages: messages
-                })
-            });
+                body: JSON.stringify(msgObj)
+            }
+        );
 
-            // Display message immediately
-            displayMessage(msgObj);
-            lastMessageTimestamp = msgObj.timestamp;
+        if (response.ok) {
+            displayMessage({ id: messageId, ...msgObj });
+            lastMessageId = messageId;
+            scrollToBottom();
+        } else {
+            alert('Error sending message. Please try again.');
         }
     } catch (error) {
         console.error('Error sending message:', error);
         alert('Error sending message. Please try again.');
     }
 
-    // Clear input
     messageInput.value = '';
     messageInput.focus();
-    scrollToBottom();
 }
 
 function displayMessage(msgObj) {
     const messagesDiv = document.getElementById('messages');
-    
+
     // Check if message already exists
     if (document.getElementById('msg-' + msgObj.id)) {
         return;
@@ -224,7 +178,7 @@ function leaveChat() {
     currentUser = '';
     currentRoom = '';
     currentPassword = '';
-    lastMessageTimestamp = 0;
+    lastMessageId = null;
 }
 
 function handleKeyPress(event) {
@@ -234,11 +188,11 @@ function handleKeyPress(event) {
     }
 }
 
-// Polling system for real-time updates
 function startPolling() {
+    // Check for new messages every 500ms
     pollInterval = setInterval(async () => {
         await checkForNewMessages();
-    }, 1000); // Check every 1 second
+    }, 500);
 }
 
 function stopPolling() {
@@ -250,31 +204,37 @@ function stopPolling() {
 
 async function checkForNewMessages() {
     try {
-        const response = await fetch(`${API_URL}/${roomBinId}`, {
-            headers: {
-                'X-Master-Key': API_KEY
-            }
-        });
+        const roomId = generateRoomId(currentRoom, currentPassword);
+        const response = await fetch(
+            `https://simple-chat-demo.firebaseio.com/rooms/${roomId}/messages.json`
+        );
 
         if (response.ok) {
             const data = await response.json();
-            const messages = data.record.messages || [];
 
-            // Check for new messages
-            messages.forEach(msg => {
-                if (msg.timestamp > lastMessageTimestamp && !document.getElementById('msg-' + msg.id)) {
-                    displayMessage(msg);
-                    lastMessageTimestamp = Math.max(lastMessageTimestamp, msg.timestamp);
-                    scrollToBottom();
-                }
-            });
+            if (data) {
+                const messagesArray = Object.entries(data)
+                    .map(([key, value]) => ({
+                        id: key,
+                        ...value
+                    }))
+                    .sort((a, b) => a.timestamp - b.timestamp);
+
+                // Display new messages
+                messagesArray.forEach(msg => {
+                    if (!document.getElementById('msg-' + msg.id)) {
+                        displayMessage(msg);
+                        lastMessageId = msg.id;
+                        scrollToBottom();
+                    }
+                });
+            }
         }
     } catch (error) {
         console.error('Error checking for new messages:', error);
     }
 }
 
-// Utility function to escape HTML
 function escapeHtml(text) {
     const map = {
         '&': '&amp;',
