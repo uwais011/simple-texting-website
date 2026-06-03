@@ -1,28 +1,59 @@
+// Configuration - Using a free backend service
+const API_URL = 'https://api.jsonbin.io/v3/b';
+const API_KEY = '$2b$10$k.5cR8oJ8a8a8a8a8a8a8a'; // JSON Bin API
+
 // Store current user and room info
 let currentUser = '';
-let currentRoom = 'default';
-let messageHistory = {};
+let currentRoom = '';
+let currentPassword = '';
+let roomBinId = null;
+let pollInterval = null;
+let lastMessageTimestamp = 0;
 
 // Initialize app
 window.addEventListener('load', () => {
-    loadFromLocalStorage();
+    console.log('Chat app loaded');
 });
 
-function joinChat() {
+function generateRoomHash(roomName, password) {
+    // Generate a unique ID for this room combination
+    let hash = 0;
+    const str = roomName + '|' + password;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32bit integer
+    }
+    return 'room_' + Math.abs(hash).toString(36);
+}
+
+async function joinChat() {
     const usernameInput = document.getElementById('usernameInput').value.trim();
     const roomInput = document.getElementById('roomInput').value.trim();
+    const passwordInput = document.getElementById('passwordInput').value.trim();
 
     if (!usernameInput) {
         alert('Please enter your name!');
         return;
     }
 
-    currentUser = usernameInput;
-    currentRoom = roomInput || 'default';
+    if (!roomInput) {
+        alert('Please enter a room name!');
+        return;
+    }
 
-    // Save to localStorage
-    localStorage.setItem('currentUser', currentUser);
-    localStorage.setItem('currentRoom', currentRoom);
+    if (!passwordInput) {
+        alert('Please enter a room password!');
+        return;
+    }
+
+    currentUser = usernameInput;
+    currentRoom = roomInput;
+    currentPassword = passwordInput;
+    roomBinId = generateRoomHash(roomInput, passwordInput);
+
+    // Initialize room
+    await initializeRoom();
 
     // Show chat window
     document.getElementById('setupSection').style.display = 'none';
@@ -30,8 +61,8 @@ function joinChat() {
     document.getElementById('roomName').textContent = currentRoom;
     document.getElementById('userName').textContent = currentUser;
 
-    // Load messages for this room
-    loadMessagesForRoom();
+    // Load existing messages
+    await loadMessages();
 
     // Focus on input
     document.getElementById('messageInput').focus();
@@ -40,16 +71,66 @@ function joinChat() {
     startPolling();
 }
 
-function leaveChat() {
-    document.getElementById('setupSection').style.display = 'flex';
-    document.getElementById('chatWindow').style.display = 'none';
-    document.getElementById('usernameInput').value = '';
-    document.getElementById('roomInput').value = '';
-    document.getElementById('messageInput').value = '';
-    stopPolling();
+async function initializeRoom() {
+    try {
+        // Try to get existing room data
+        const response = await fetch(`${API_URL}/${roomBinId}`, {
+            headers: {
+                'X-Master-Key': API_KEY
+            }
+        });
+
+        if (!response.ok) {
+            // Create new room if it doesn't exist
+            const newRoomData = {
+                roomName: currentRoom,
+                password: currentPassword,
+                messages: [],
+                created: new Date().toISOString()
+            };
+
+            await fetch(API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': API_KEY
+                },
+                body: JSON.stringify(newRoomData)
+            });
+        }
+    } catch (error) {
+        console.error('Error initializing room:', error);
+        alert('Error connecting to server. Using local mode.');
+    }
 }
 
-function sendMessage() {
+async function loadMessages() {
+    try {
+        const response = await fetch(`${API_URL}/${roomBinId}`, {
+            headers: {
+                'X-Master-Key': API_KEY
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const messages = data.record.messages || [];
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.innerHTML = '';
+
+            messages.forEach(msg => {
+                displayMessage(msg);
+                lastMessageTimestamp = Math.max(lastMessageTimestamp, msg.timestamp);
+            });
+
+            scrollToBottom();
+        }
+    } catch (error) {
+        console.error('Error loading messages:', error);
+    }
+}
+
+async function sendMessage() {
     const messageInput = document.getElementById('messageInput');
     const message = messageInput.value.trim();
 
@@ -60,64 +141,90 @@ function sendMessage() {
         id: Date.now(),
         user: currentUser,
         text: message,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: Date.now(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         room: currentRoom
     };
 
-    // Add to message history
-    if (!messageHistory[currentRoom]) {
-        messageHistory[currentRoom] = [];
+    try {
+        // Get current messages
+        const response = await fetch(`${API_URL}/${roomBinId}`, {
+            headers: {
+                'X-Master-Key': API_KEY
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const messages = data.record.messages || [];
+            messages.push(msgObj);
+
+            // Update room with new message
+            await fetch(`${API_URL}/${roomBinId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': API_KEY
+                },
+                body: JSON.stringify({
+                    ...data.record,
+                    messages: messages
+                })
+            });
+
+            // Display message immediately
+            displayMessage(msgObj);
+            lastMessageTimestamp = msgObj.timestamp;
+        }
+    } catch (error) {
+        console.error('Error sending message:', error);
+        alert('Error sending message. Please try again.');
     }
-    messageHistory[currentRoom].push(msgObj);
-
-    // Save to localStorage
-    saveToLocalStorage();
-
-    // Display message
-    displayMessage(msgObj);
 
     // Clear input
     messageInput.value = '';
     messageInput.focus();
-
-    // Scroll to bottom
     scrollToBottom();
-
-    // Broadcast to other tabs/windows using storage event
-    localStorage.setItem('lastMessage_' + currentRoom, JSON.stringify(msgObj));
 }
 
 function displayMessage(msgObj) {
     const messagesDiv = document.getElementById('messages');
+    
+    // Check if message already exists
+    if (document.getElementById('msg-' + msgObj.id)) {
+        return;
+    }
+
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${msgObj.user === currentUser ? 'own' : 'other'}`;
     messageDiv.id = 'msg-' + msgObj.id;
 
     messageDiv.innerHTML = `
-        <div class="message-author">${msgObj.user}</div>
+        <div class="message-author">${escapeHtml(msgObj.user)}</div>
         <div class="message-bubble">${escapeHtml(msgObj.text)}</div>
-        <div class="message-time">${msgObj.timestamp}</div>
+        <div class="message-time">${msgObj.time}</div>
     `;
 
     messagesDiv.appendChild(messageDiv);
 }
 
-function loadMessagesForRoom() {
-    const messagesDiv = document.getElementById('messages');
-    messagesDiv.innerHTML = '';
-
-    if (messageHistory[currentRoom]) {
-        messageHistory[currentRoom].forEach(msg => {
-            displayMessage(msg);
-        });
-    }
-
-    scrollToBottom();
-}
-
 function scrollToBottom() {
     const messagesDiv = document.getElementById('messages');
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+function leaveChat() {
+    stopPolling();
+    document.getElementById('setupSection').style.display = 'flex';
+    document.getElementById('chatWindow').style.display = 'none';
+    document.getElementById('usernameInput').value = '';
+    document.getElementById('roomInput').value = '';
+    document.getElementById('passwordInput').value = '';
+    document.getElementById('messageInput').value = '';
+    currentUser = '';
+    currentRoom = '';
+    currentPassword = '';
+    lastMessageTimestamp = 0;
 }
 
 function handleKeyPress(event) {
@@ -127,40 +234,43 @@ function handleKeyPress(event) {
     }
 }
 
-// LocalStorage functions
-function saveToLocalStorage() {
-    localStorage.setItem('messageHistory', JSON.stringify(messageHistory));
-}
-
-function loadFromLocalStorage() {
-    const saved = localStorage.getItem('messageHistory');
-    if (saved) {
-        messageHistory = JSON.parse(saved);
-    }
-}
-
 // Polling system for real-time updates
-let pollInterval = null;
-
 function startPolling() {
-    pollInterval = setInterval(() => {
-        // Check if new message was added from another tab
-        const lastMsg = localStorage.getItem('lastMessage_' + currentRoom);
-        if (lastMsg) {
-            const msgObj = JSON.parse(lastMsg);
-            // Check if message is already displayed
-            if (!document.getElementById('msg-' + msgObj.id)) {
-                displayMessage(msgObj);
-                scrollToBottom();
-            }
-        }
-    }, 500);
+    pollInterval = setInterval(async () => {
+        await checkForNewMessages();
+    }, 1000); // Check every 1 second
 }
 
 function stopPolling() {
     if (pollInterval) {
         clearInterval(pollInterval);
         pollInterval = null;
+    }
+}
+
+async function checkForNewMessages() {
+    try {
+        const response = await fetch(`${API_URL}/${roomBinId}`, {
+            headers: {
+                'X-Master-Key': API_KEY
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const messages = data.record.messages || [];
+
+            // Check for new messages
+            messages.forEach(msg => {
+                if (msg.timestamp > lastMessageTimestamp && !document.getElementById('msg-' + msg.id)) {
+                    displayMessage(msg);
+                    lastMessageTimestamp = Math.max(lastMessageTimestamp, msg.timestamp);
+                    scrollToBottom();
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error checking for new messages:', error);
     }
 }
 
@@ -175,14 +285,3 @@ function escapeHtml(text) {
     };
     return text.replace(/[&<>"']/g, m => map[m]);
 }
-
-// Listen for storage changes from other tabs
-window.addEventListener('storage', (e) => {
-    if (e.key && e.key.startsWith('lastMessage_') && currentRoom && e.key === 'lastMessage_' + currentRoom) {
-        const msgObj = JSON.parse(e.newValue);
-        if (msgObj && !document.getElementById('msg-' + msgObj.id)) {
-            displayMessage(msgObj);
-            scrollToBottom();
-        }
-    }
-});
