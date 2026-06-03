@@ -3,40 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple Chat - No Sign Up Needed</title>
+    <title>Simple Chat - Real-Time Messaging</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="chat-container">
         <div class="chat-header">
             <h1>💬 Simple Chat</h1>
-            <p class="subtitle">Real-time messaging • No sign up needed</p>
+            <p class="subtitle">Real-time messaging • Secure rooms</p>
         </div>
 
+        <!-- Login/Join Section -->
         <div class="chat-setup" id="setupSection">
             <div class="setup-card">
                 <h2>Join a Chat Room</h2>
-                <input 
-                    type="text" 
-                    id="roomInput" 
-                    placeholder="Enter room name (or leave blank for default)" 
-                    class="input-field"
-                />
                 <input 
                     type="text" 
                     id="usernameInput" 
                     placeholder="Enter your name" 
                     class="input-field"
                 />
+                <input 
+                    type="text" 
+                    id="roomInput" 
+                    placeholder="Enter room name" 
+                    class="input-field"
+                />
+                <input 
+                    type="password" 
+                    id="passwordInput" 
+                    placeholder="Enter room password" 
+                    class="input-field"
+                />
                 <button onclick="joinChat()" class="btn-join">Enter Chat</button>
-                <p class="info-text">💡 Share the room name with others to chat together!</p>
+                <p class="info-text">💡 Share the room name & password with others to chat together!</p>
+                <p class="info-text" style="margin-top: 20px; font-size: 12px; color: #999;">
+                    ℹ️ Messages are stored on our server and synced in real-time
+                </p>
             </div>
         </div>
 
+        <!-- Chat Window -->
         <div class="chat-window" id="chatWindow" style="display: none;">
             <div class="room-info">
-                <span>Room: <strong id="roomName"></strong></span>
-                <span>User: <strong id="userName"></strong></span>
+                <div>
+                    <span>Room: <strong id="roomName"></strong></span>
+                    <span style="margin-left: 20px;">User: <strong id="userName"></strong></span>
+                </div>
                 <button onclick="leaveChat()" class="btn-leave">Leave Chat</button>
             </div>
             
