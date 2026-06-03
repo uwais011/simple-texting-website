@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Chat - No Sign Up Needed</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>💬 Simple Chat</h1>
+            <p class="subtitle">Real-time messaging • No sign up needed</p>
+        </div>
+
+        <div class="chat-setup" id="setupSection">
+            <div class="setup-card">
+                <h2>Join a Chat Room</h2>
+                <input 
+                    type="text" 
+                    id="roomInput" 
+                    placeholder="Enter room name (or leave blank for default)" 
+                    class="input-field"
+                />
+                <input 
+                    type="text" 
+                    id="usernameInput" 
+                    placeholder="Enter your name" 
+                    class="input-field"
+                />
+                <button onclick="joinChat()" class="btn-join">Enter Chat</button>
+                <p class="info-text">💡 Share the room name with others to chat together!</p>
+            </div>
+        </div>
+
+        <div class="chat-window" id="chatWindow" style="display: none;">
+            <div class="room-info">
+                <span>Room: <strong id="roomName"></strong></span>
+                <span>User: <strong id="userName"></strong></span>
+                <button onclick="leaveChat()" class="btn-leave">Leave Chat</button>
+            </div>
+            
+            <div class="messages" id="messages"></div>
+            
+            <div class="input-area">
+                <input 
+                    type="text" 
+                    id="messageInput" 
+                    placeholder="Type your message..." 
+                    class="message-input"
+                    onkeypress="handleKeyPress(event)"
+                />
+                <button onclick="sendMessage()" class="btn-send">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
